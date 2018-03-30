@@ -1,9 +1,7 @@
 package com.example.android.cognitvefacenosdk;
 
 import android.Manifest;
-import android.app.AlertDialog;
 import android.app.ProgressDialog;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -13,8 +11,8 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Environment;
 import android.provider.MediaStore;
+import android.support.annotation.NonNull;
 import android.support.v4.content.FileProvider;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
@@ -29,20 +27,14 @@ import com.example.android.cognitvefacenosdk.faceapi.FaceRectangle;
 import com.example.android.cognitvefacenosdk.faceapi.ImageTooSmall;
 import com.example.android.cognitvefacenosdk.faceapi.MicrosoftFaceApi;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
-import java.lang.annotation.Annotation;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.List;
 
 import okhttp3.MediaType;
 import okhttp3.RequestBody;
-import okhttp3.ResponseBody;
 import retrofit2.Call;
 import retrofit2.Callback;
-import retrofit2.Converter;
 import retrofit2.Response;
 
 public class MainActivity extends AppCompatActivity {
@@ -69,28 +61,23 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        imageView = (ImageView) findViewById(R.id.imageView1);
+        imageView = findViewById(R.id.imageView1);
 
-        Button browseButton = (Button) findViewById(R.id.button1);
+        Button browseButton = findViewById(R.id.browseButton);
         browseButton.setOnClickListener(v -> {
             Intent gallIntent = new Intent(Intent.ACTION_GET_CONTENT);
             gallIntent.setType("image/*");
             startActivityForResult(Intent.createChooser(gallIntent, getString(R.string.select_image)), PICK_IMAGE);
         });
 
-        Button cameraButton = (Button) findViewById(R.id.button2);
+        Button cameraButton = findViewById(R.id.cameraButton);
         cameraButton.setOnClickListener(v -> {
             int hasCameraPermission = checkSelfPermission(Manifest.permission.CAMERA);
             if (hasCameraPermission != PackageManager.PERMISSION_GRANTED) {
                 if (!shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)) {
-                    showMessageOKCancel(R.string.camera_access,
-                            new DialogInterface.OnClickListener() {
-                                @Override
-                                public void onClick(DialogInterface dialog, int which) {
-                                    requestPermissions(new String[]{Manifest.permission.CAMERA},
-                                            REQUEST_CODE_ASK_PERMISSIONS);
-                                }
-                            });
+                    UiUtil.showMessageOKCancel(MainActivity.this, R.string.camera_access,
+                            (dialog, which) -> requestPermissions(new String[]{Manifest.permission.CAMERA},
+                                    REQUEST_CODE_ASK_PERMISSIONS));
                     return;
                 }
 
@@ -107,7 +94,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         switch (requestCode) {
             case REQUEST_CODE_ASK_PERMISSIONS:
                 if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
@@ -130,7 +117,8 @@ public class MainActivity extends AppCompatActivity {
             // Create the File where the photo should go
             File photoFile = null;
             try {
-                photoFile = createImageFile();
+                photoFile = Util.createImageFile(MainActivity.this);
+                mCurrentPhotoPath = photoFile.getAbsolutePath();
             } catch (IOException e) {
                 Log.e(TAG, "Failed to create photo image file");
                 e.printStackTrace();
@@ -183,7 +171,7 @@ public class MainActivity extends AppCompatActivity {
         Log.d(TAG, "detectAndFrame");
         Pair<byte[], Float> imageBytesAndScale;
         try {
-            imageBytesAndScale = bitmapToSizeLimitedByteArray(imageBitmap);
+            imageBytesAndScale = Util.bitmapToSizeLimitedByteArray(imageBitmap);
         } catch (ImageTooSmall e) {
             Toast.makeText(MainActivity.this, R.string.image_too_small, Toast.LENGTH_SHORT)
                     .show();
@@ -191,108 +179,32 @@ public class MainActivity extends AppCompatActivity {
         }
         RequestBody body = RequestBody.create(MediaType.parse("application/octet-stream"), imageBytesAndScale.first);
 
-        //publishProgress("Detecting...");
         Call<List<Face>> request = faceService.detectFaces(MS_API_KEY, true, false, null, body);
         Log.d(TAG, "Executing request");
         detectionProgressDialog.show();
         request.enqueue(new Callback<List<Face>>() {
             @Override
-            public void onResponse(Call<List<Face>> call, Response<List<Face>> response) {
+            public void onResponse(@NonNull Call<List<Face>> call, @NonNull Response<List<Face>> response) {
                 if (response.isSuccessful()) {
                     Log.d(TAG, "Request succeeded");
                     detectionProgressDialog.dismiss();
-                    ImageView imageView = (ImageView) findViewById(R.id.imageView1);
+                    ImageView imageView = findViewById(R.id.imageView1);
                     imageView.setImageBitmap(drawFaceRectanglesOnBitmap(imageBitmap, response.body(), imageBytesAndScale.second));
                     imageBitmap.recycle();
                 } else {
                     Log.d(TAG, "Request failed with code: " + response.code());
-                    FaceApiError error = parseFaceApiError(response);
+                    FaceApiError error = ServiceGenerator.parseFaceApiError(response);
                     Log.e(TAG, "Face API error = " + error);
                     detectionProgressDialog.setMessage("Detection failed");
                 }
             }
 
             @Override
-            public void onFailure(Call<List<Face>> call, Throwable t) {
+            public void onFailure(@NonNull Call<List<Face>> call, @NonNull Throwable t) {
                 Log.e(TAG, "Detection failed.", t);
                 detectionProgressDialog.setMessage("Detection failed");
             }
         });
-    }
-
-    /*
-     * The Microsoft API can only handles images in the size range 1Kb to 4Mb.
-     * If the image is too small we throw an exception if it's too large we resize it.
-     */
-    private Pair<byte[], Float> bitmapToSizeLimitedByteArray(final Bitmap imageBitmap) throws ImageTooSmall {
-        byte[] imageBytes = bitmapToBytes(imageBitmap);
-        float scale = 1.0f;
-        Log.i(TAG, "Bitmap width = " + imageBitmap.getWidth() + ", height = " + imageBitmap.getHeight() + ", bytes = " + imageBytes.length);
-
-        if (imageBytes.length > MicrosoftFaceApi.MAX_IMAGE_BYTES) {
-            Bitmap bitmap = imageBitmap;
-            do {
-                // keep reducing the scale until the image is small enough
-                scale = scale - 0.1f;
-                Log.d(TAG, "Scaling image by " + scale);
-                bitmap = resizeBitmapByScale(bitmap, scale, bitmap != imageBitmap);
-                imageBytes = bitmapToBytes(bitmap);
-                Log.i(TAG, "Bitmap width = " + bitmap.getWidth() + ", height = " + bitmap.getHeight() + ", bytes = " + imageBytes.length);
-            } while ((imageBytes.length > MicrosoftFaceApi.MAX_IMAGE_BYTES) && (scale > 0.0f));
-            return Pair.create(imageBytes, scale);
-
-        } else if (imageBytes.length < MicrosoftFaceApi.MIN_IMAGE_BYTES) {
-            Log.i(TAG, "Image too small. Size = " + imageBytes.length);
-            throw new ImageTooSmall(imageBytes.length);
-        }
-
-        return Pair.create(imageBytes, scale);
-    }
-
-    public static Bitmap resizeBitmapByScale(
-            Bitmap bitmap, float scale, boolean recycle) {
-        int width = Math.round(bitmap.getWidth() * scale);
-        int height = Math.round(bitmap.getHeight() * scale);
-        if (width == bitmap.getWidth()
-                && height == bitmap.getHeight()) return bitmap;
-        Bitmap target = Bitmap.createBitmap(width, height, getConfig(bitmap));
-        Canvas canvas = new Canvas(target);
-        canvas.scale(scale, scale);
-        Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
-        canvas.drawBitmap(bitmap, 0, 0, paint);
-        if (recycle) bitmap.recycle();
-        return target;
-    }
-
-    private static Bitmap.Config getConfig(Bitmap bitmap) {
-        Bitmap.Config config = bitmap.getConfig();
-        if (config == null) {
-            config = Bitmap.Config.ARGB_8888;
-        }
-        return config;
-    }
-
-    private byte[] bitmapToBytes(Bitmap imageBitmap) {
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        imageBitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream);
-        return outputStream.toByteArray();
-    }
-
-    private FaceApiError parseFaceApiError(Response<?> response) {
-        Converter<ResponseBody, FaceApiError> converter =
-                ServiceGenerator.retrofit
-                        .responseBodyConverter(FaceApiError.class, new Annotation[0]);
-
-        FaceApiError error;
-
-        try {
-            error = converter.convert(response.errorBody());
-        } catch (IOException e) {
-            Log.e(TAG, "Enable to parse error response", e);
-            return new FaceApiError();
-        }
-
-        return error;
     }
 
     private static Bitmap drawFaceRectanglesOnBitmap(Bitmap originalBitmap, List<Face> faces, float scale) {
@@ -308,7 +220,7 @@ public class MainActivity extends AppCompatActivity {
         if (faces != null) {
             Log.d(TAG, "#faces: " + faces.size());
             for (Face face : faces) {
-                FaceRectangle faceRectangle = scaleRectangle(face.getFaceRectangle(), scale);
+                FaceRectangle faceRectangle = Util.scaleRectangle(face.getFaceRectangle(), scale);
                 canvas.drawRect(
                         faceRectangle.getLeft(),
                         faceRectangle.getTop(),
@@ -316,48 +228,7 @@ public class MainActivity extends AppCompatActivity {
                         faceRectangle.getBottom(),
                         paint);
             }
-        } else {
-
         }
         return bitmap;
-    }
-
-    private static FaceRectangle scaleRectangle(FaceRectangle rectangle, float scale) {
-        FaceRectangle result = new FaceRectangle();
-        final float convertScale = 1.0f / scale;
-        result.setHeight(scaleInt(rectangle.getHeight(), convertScale));
-        result.setWidth(scaleInt(rectangle.getWidth(), convertScale));
-        result.setLeft(scaleInt(rectangle.getLeft(), convertScale));
-        result.setTop(scaleInt(rectangle.getTop(), convertScale));
-        return result;
-    }
-
-    private static int scaleInt(int value, float scale) {
-        return Math.round(value * scale);
-    }
-
-    private File createImageFile() throws IOException {
-        // Create an image file name
-        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
-        String imageFileName = "JPEG_" + timeStamp + "_";
-        File storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES);
-        File image = File.createTempFile(
-                imageFileName,  /* prefix */
-                ".jpg",         /* suffix */
-                storageDir      /* directory */
-        );
-
-        // Save a file: path for use with ACTION_VIEW intents
-        mCurrentPhotoPath = image.getAbsolutePath();
-        return image;
-    }
-
-    private void showMessageOKCancel(int stringId, DialogInterface.OnClickListener okListener) {
-        new AlertDialog.Builder(MainActivity.this)
-                .setMessage(stringId)
-                .setPositiveButton(R.string.ok, okListener)
-                .setNegativeButton(R.string.cancel, null)
-                .create()
-                .show();
     }
 }
