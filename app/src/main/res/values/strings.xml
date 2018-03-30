@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">CognitiveFaceNoSdk</string>
+    <string name="select_image">"Select Picture"</string>
+    <string name="browse">Browse</string>
+    <string name="camera">Take photo</string>
+    <string name="ok">OK</string>
+    <string name="cancel">Cancel</string>
+    <string name="camera_access">You need to allow access to the camera</string>
+</resources>
