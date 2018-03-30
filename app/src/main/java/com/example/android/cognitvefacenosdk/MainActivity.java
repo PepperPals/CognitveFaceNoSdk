@@ -12,13 +12,13 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.support.v4.content.FileProvider;
 import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
 import android.util.Log;
-import android.view.View;
+import android.util.Pair;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.Toast;
@@ -26,9 +26,8 @@ import android.widget.Toast;
 import com.example.android.cognitvefacenosdk.faceapi.Face;
 import com.example.android.cognitvefacenosdk.faceapi.FaceApiError;
 import com.example.android.cognitvefacenosdk.faceapi.FaceRectangle;
+import com.example.android.cognitvefacenosdk.faceapi.ImageTooSmall;
 import com.example.android.cognitvefacenosdk.faceapi.MicrosoftFaceApi;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -39,16 +38,12 @@ import java.util.Date;
 import java.util.List;
 
 import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
 import okhttp3.RequestBody;
 import okhttp3.ResponseBody;
-import okhttp3.logging.HttpLoggingInterceptor;
 import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Converter;
 import retrofit2.Response;
-import retrofit2.Retrofit;
-import retrofit2.converter.gson.GsonConverterFactory;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = MainActivity.class.getSimpleName();
@@ -92,7 +87,7 @@ public class MainActivity extends AppCompatActivity {
                             new DialogInterface.OnClickListener() {
                                 @Override
                                 public void onClick(DialogInterface dialog, int which) {
-                                    requestPermissions(new String[] {Manifest.permission.CAMERA},
+                                    requestPermissions(new String[]{Manifest.permission.CAMERA},
                                             REQUEST_CODE_ASK_PERMISSIONS);
                                 }
                             });
@@ -120,7 +115,7 @@ public class MainActivity extends AppCompatActivity {
                     takePhoto();
                 } else {
                     // Permission Denied
-                    Toast.makeText(MainActivity.this, "Use of camera denied", Toast.LENGTH_SHORT)
+                    Toast.makeText(MainActivity.this, R.string.camera_denied, Toast.LENGTH_SHORT)
                             .show();
                 }
                 break;
@@ -186,9 +181,15 @@ public class MainActivity extends AppCompatActivity {
      */
     private void detectAndFrame(final Bitmap imageBitmap) {
         Log.d(TAG, "detectAndFrame");
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        imageBitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream);
-        RequestBody body = RequestBody.create(MediaType.parse("application/octet-stream"), outputStream.toByteArray());
+        Pair<byte[], Float> imageBytesAndScale;
+        try {
+            imageBytesAndScale = bitmapToSizeLimitedByteArray(imageBitmap);
+        } catch (ImageTooSmall e) {
+            Toast.makeText(MainActivity.this, R.string.image_too_small, Toast.LENGTH_SHORT)
+                    .show();
+            return;
+        }
+        RequestBody body = RequestBody.create(MediaType.parse("application/octet-stream"), imageBytesAndScale.first);
 
         //publishProgress("Detecting...");
         Call<List<Face>> request = faceService.detectFaces(MS_API_KEY, true, false, null, body);
@@ -201,7 +202,7 @@ public class MainActivity extends AppCompatActivity {
                     Log.d(TAG, "Request succeeded");
                     detectionProgressDialog.dismiss();
                     ImageView imageView = (ImageView) findViewById(R.id.imageView1);
-                    imageView.setImageBitmap(drawFaceRectanglesOnBitmap(imageBitmap, response.body()));
+                    imageView.setImageBitmap(drawFaceRectanglesOnBitmap(imageBitmap, response.body(), imageBytesAndScale.second));
                     imageBitmap.recycle();
                 } else {
                     Log.d(TAG, "Request failed with code: " + response.code());
@@ -217,6 +218,64 @@ public class MainActivity extends AppCompatActivity {
                 detectionProgressDialog.setMessage("Detection failed");
             }
         });
+    }
+
+    /*
+     * The Microsoft API can only handles images in the size range 1Kb to 4Mb.
+     * If the image is too small we throw an exception if it's too large we resize it.
+     */
+    private Pair<byte[], Float> bitmapToSizeLimitedByteArray(final Bitmap imageBitmap) throws ImageTooSmall {
+        byte[] imageBytes = bitmapToBytes(imageBitmap);
+        float scale = 1.0f;
+        Log.i(TAG, "Bitmap width = " + imageBitmap.getWidth() + ", height = " + imageBitmap.getHeight() + ", bytes = " + imageBytes.length);
+
+        if (imageBytes.length > MicrosoftFaceApi.MAX_IMAGE_BYTES) {
+            Bitmap bitmap = imageBitmap;
+            do {
+                // keep reducing the scale until the image is small enough
+                scale = scale - 0.1f;
+                Log.d(TAG, "Scaling image by " + scale);
+                bitmap = resizeBitmapByScale(bitmap, scale, bitmap != imageBitmap);
+                imageBytes = bitmapToBytes(bitmap);
+                Log.i(TAG, "Bitmap width = " + bitmap.getWidth() + ", height = " + bitmap.getHeight() + ", bytes = " + imageBytes.length);
+            } while ((imageBytes.length > MicrosoftFaceApi.MAX_IMAGE_BYTES) && (scale > 0.0f));
+            return Pair.create(imageBytes, scale);
+
+        } else if (imageBytes.length < MicrosoftFaceApi.MIN_IMAGE_BYTES) {
+            Log.i(TAG, "Image too small. Size = " + imageBytes.length);
+            throw new ImageTooSmall(imageBytes.length);
+        }
+
+        return Pair.create(imageBytes, scale);
+    }
+
+    public static Bitmap resizeBitmapByScale(
+            Bitmap bitmap, float scale, boolean recycle) {
+        int width = Math.round(bitmap.getWidth() * scale);
+        int height = Math.round(bitmap.getHeight() * scale);
+        if (width == bitmap.getWidth()
+                && height == bitmap.getHeight()) return bitmap;
+        Bitmap target = Bitmap.createBitmap(width, height, getConfig(bitmap));
+        Canvas canvas = new Canvas(target);
+        canvas.scale(scale, scale);
+        Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
+        canvas.drawBitmap(bitmap, 0, 0, paint);
+        if (recycle) bitmap.recycle();
+        return target;
+    }
+
+    private static Bitmap.Config getConfig(Bitmap bitmap) {
+        Bitmap.Config config = bitmap.getConfig();
+        if (config == null) {
+            config = Bitmap.Config.ARGB_8888;
+        }
+        return config;
+    }
+
+    private byte[] bitmapToBytes(Bitmap imageBitmap) {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        imageBitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream);
+        return outputStream.toByteArray();
     }
 
     private FaceApiError parseFaceApiError(Response<?> response) {
@@ -236,7 +295,7 @@ public class MainActivity extends AppCompatActivity {
         return error;
     }
 
-    private static Bitmap drawFaceRectanglesOnBitmap(Bitmap originalBitmap, List<Face> faces) {
+    private static Bitmap drawFaceRectanglesOnBitmap(Bitmap originalBitmap, List<Face> faces, float scale) {
         Log.d(TAG, "drawFaceRectanglesOnBitmap");
         Bitmap bitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true);
         Canvas canvas = new Canvas(bitmap);
@@ -249,7 +308,7 @@ public class MainActivity extends AppCompatActivity {
         if (faces != null) {
             Log.d(TAG, "#faces: " + faces.size());
             for (Face face : faces) {
-                FaceRectangle faceRectangle = face.getFaceRectangle();
+                FaceRectangle faceRectangle = scaleRectangle(face.getFaceRectangle(), scale);
                 canvas.drawRect(
                         faceRectangle.getLeft(),
                         faceRectangle.getTop(),
@@ -261,6 +320,20 @@ public class MainActivity extends AppCompatActivity {
 
         }
         return bitmap;
+    }
+
+    private static FaceRectangle scaleRectangle(FaceRectangle rectangle, float scale) {
+        FaceRectangle result = new FaceRectangle();
+        final float convertScale = 1.0f / scale;
+        result.setHeight(scaleInt(rectangle.getHeight(), convertScale));
+        result.setWidth(scaleInt(rectangle.getWidth(), convertScale));
+        result.setLeft(scaleInt(rectangle.getLeft(), convertScale));
+        result.setTop(scaleInt(rectangle.getTop(), convertScale));
+        return result;
+    }
+
+    private static int scaleInt(int value, float scale) {
+        return Math.round(value * scale);
     }
 
     private File createImageFile() throws IOException {

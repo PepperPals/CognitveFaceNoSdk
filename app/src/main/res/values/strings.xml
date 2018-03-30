@@ -6,4 +6,6 @@
     <string name="ok">OK</string>
     <string name="cancel">Cancel</string>
     <string name="camera_access">You need to allow access to the camera</string>
+    <string name="camera_denied">Use of camera denied</string>
+    <string name="image_too_small">Photo must be at least 1Kb in size</string>
 </resources>
