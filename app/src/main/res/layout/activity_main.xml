@@ -34,8 +34,8 @@
         <Button
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/enroll"
-            android:id="@+id/enrollButton" />
+            android:text="@string/add_person"
+            android:id="@+id/addButton" />
     </LinearLayout>
 
 

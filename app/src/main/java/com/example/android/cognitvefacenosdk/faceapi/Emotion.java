@@ -1,7 +1,7 @@
 package com.example.android.cognitvefacenosdk.faceapi;
 
 
-class Emotion {
+public class Emotion {
     public float getAnger() {
         return anger;
     }

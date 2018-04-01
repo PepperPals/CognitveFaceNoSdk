@@ -9,4 +9,7 @@
     <string name="camera_denied">Use of camera denied</string>
     <string name="image_too_small">Photo must be at least 1Kb in size</string>
     <string name="enroll">Enroll</string>
+    <string name="person_name">Name</string>
+    <string name="add_person">Add person</string>
+    <string name="face_api_failure">Face API call failed</string>
 </resources>
