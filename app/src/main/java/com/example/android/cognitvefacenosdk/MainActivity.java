@@ -20,18 +20,30 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import butterknife.BindView;
+import butterknife.ButterKnife;
+
 public class MainActivity extends BasePhotoActivity {
     private static final String TAG = MainActivity.class.getSimpleName();
+
+    @BindView(R.id.browseButton) Button browseButton;
+
+    @BindView(R.id.cameraButton) Button cameraButton;
+
+    @BindView(R.id.addButton) Button addPersonButton;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        ButterKnife.bind(this);
 
         PersonService globalState = (PersonService) getApplication();
         if (!globalState.isInitialised()) {
             Log.i(TAG, "Initialising application state");
             globalState.initialise();
+
+            // TODO We probably need to use a Loader here so that we don't get duplicate requests if device is rotated while initial requests are in progress
             PersonGroup group = new PersonGroup();
             group.setPersonGroupId(globalState.getPersonGroupId());
             group.setName("Cognitive Face Android demo with Retrofit");
@@ -42,13 +54,10 @@ public class MainActivity extends BasePhotoActivity {
 
         detectionProgressDialog = new ProgressDialog(this);
 
-        Button browseButton = findViewById(R.id.browseButton);
         browseButton.setOnClickListener(v -> startSelectPhoto());
 
-        Button cameraButton = findViewById(R.id.cameraButton);
         cameraButton.setOnClickListener(v -> startTakePhoto());
 
-        Button addPersonButton = findViewById(R.id.addButton);
         addPersonButton.setOnClickListener(v -> {
             Intent intent = new Intent(this, EnrollActivity.class);
             startActivity(intent);

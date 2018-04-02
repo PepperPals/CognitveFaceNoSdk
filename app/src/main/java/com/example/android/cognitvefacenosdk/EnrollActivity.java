@@ -14,8 +14,17 @@ import com.example.android.cognitvefacenosdk.faceapi.Person;
 
 import java.util.List;
 
+import butterknife.BindView;
+import butterknife.ButterKnife;
+
 public class EnrollActivity extends BasePhotoActivity {
     private static final String TAG = EnrollActivity.class.getSimpleName();
+
+    @BindView(R.id.browseButton) Button browseButton;
+
+    @BindView(R.id.cameraButton) Button cameraButton;
+
+    @BindView(R.id.enrollButton) Button enrollPersonButton;
 
     Bitmap faceBitmap = null;
 
@@ -25,25 +34,24 @@ public class EnrollActivity extends BasePhotoActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_enroll);
+        ButterKnife.bind(this);
+
         imageView = findViewById(R.id.imageView1);
 
         detectionProgressDialog = new ProgressDialog(this);
 
-        Button browseButton = findViewById(R.id.browseButton);
         browseButton.setOnClickListener(v -> {
             faceBitmap = null;
             detectedFaces = null;
             startSelectPhoto();
         });
 
-        Button cameraButton = findViewById(R.id.cameraButton);
         cameraButton.setOnClickListener(v -> {
             faceBitmap = null;
             detectedFaces = null;
             startTakePhoto();
         });
 
-        Button enrollPersonButton = findViewById(R.id.enrollButton);
         enrollPersonButton.setOnClickListener(v -> enrollPerson());
     }
 
